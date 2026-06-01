@@ -1,0 +1,16 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Backend of the depencency checker and visualizer that goes through project and checks for the dependencies, later to be visualized.",
+  "license": "ISC",
+  "author": "Anshuman Tiwari",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7"
+  }
+}
