@@ -1,3 +1,3 @@
 const findDependencyGraph = require('./src/findDependencyGraph');
 
-findDependencyGraph();
+// let imports = await findDependencyGraph();

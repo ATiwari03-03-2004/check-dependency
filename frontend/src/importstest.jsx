@@ -5,3 +5,13 @@ import * as fs from 'fs';
 import './global.css';
 import Redux, { Component } from 'react';
 const module = await import('lodash');
+const { chunk, debounce: debouncing
+
+ } = await import('lodash');
+
+console.log(module);
+console.log(Redux);
+console.log(Component);
+console.log(useState);
+console.log(React);
+console.log(chunk);
