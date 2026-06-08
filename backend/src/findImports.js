@@ -9,22 +9,20 @@ async function readDirectory(path) {
     return files;
 }
 
-const imports = {};
-
 async function parseFile(path) {
     let content, baseOpt = { ecmaVersion: 'latest' };
     try {
         content = await fs.readFile(path, { encoding: 'utf8' });
-        console.log(content);
         let ast = parser.parse(content, {
             sourceType: 'unambiguous', plugins: ['jsx'], sourceFilename: path
         });
-        let obj = traverseAST(ast, content);
-        Object.assign(imports, obj);
+        return traverseAST(ast, content);
     } catch (err) {
         console.log(err);
     }
 }
+
+const imports = {};
 
 async function scanProject(path) {
     try {
@@ -32,8 +30,9 @@ async function scanProject(path) {
         for (const file of files) {
             if (file.isDirectory() && (file.name[0] != '.' && file.name != 'node_modules' && file.name != 'build' && file.name != 'dist' && file.name != 'test' && file.name != 'tests' && file.name != '__test__' && file.name != '__tests__')) {
                 await scanProject(_path.join(path, file.name));
-            } else if ((file.name == "importstest.js" || file.name == "importstest.jsx") && file.isFile() && (file.name.endsWith(".js") || file.name.endsWith(".mjs") || file.name.endsWith(".cjs") || file.name.endsWith(".jsx"))) {
-                await parseFile(_path.join(path, file.name));
+            } else if (file.isFile() && (file.name.endsWith(".js") || file.name.endsWith(".mjs") || file.name.endsWith(".cjs") || file.name.endsWith(".jsx"))) {
+                let obj = await parseFile(_path.join(path, file.name));
+                Object.assign(imports, obj);
             }
         }
     } catch (err) {
@@ -41,9 +40,8 @@ async function scanProject(path) {
     }
 }
 
-async function findDependencyGraph() {
+async function findImports() {
     try {
-        let dependencies = await projectsDependencies();
         await scanProject(process.cwd());
         return imports;
     } catch (err) {
@@ -51,4 +49,4 @@ async function findDependencyGraph() {
     }
 }
 
-module.exports = findDependencyGraph;
+module.exports = { findImports, parseFile };

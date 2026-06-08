@@ -1,4 +1,5 @@
 const traverse = require('@babel/traverse').default;
+const _path = require('path');
 
 /**
  * JSON / Object format after parsing code file
@@ -61,9 +62,9 @@ function traverseAST(ast, content) {
     traverse(ast, {
         VariableDeclaration(path) {
             path.node.declarations.forEach((declaration) => {
-                if (declaration.id.type == 'Identifier' && declaration.init.type == 'CallExpression' && declaration.init.callee.name == 'require') {
-                    if (!dependencies[path.node.loc.filename]) {
-                        dependencies[path.node.loc.filename] = {
+                if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
+                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                        dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'commonjs',
                             'code': [content.split(/\r?\n/)],
                             'dependencyList': [],
@@ -80,7 +81,7 @@ function traverseAST(ast, content) {
                         });
                     });
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        dependencies[path.node.loc.filename]['dependencyList'].push({
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                             'dependencyName': declaration.init.arguments[0].value,
                             'stringLiteral': true,
                             'sideEffectImport': false,
@@ -96,7 +97,7 @@ function traverseAST(ast, content) {
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
                         let binding = path.scope.getBinding(declaration.init.arguments[0].name);
                         if (binding.path.node.type == 'VariableDeclarator') {
-                            dependencies[path.node.loc.filename]['dependencyList'].push({
+                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                                 'dependencyName': binding.path.node.init.value,
                                 'stringLiteral': false,
                                 'sideEffectImport': false,
@@ -118,9 +119,9 @@ function traverseAST(ast, content) {
                             });
                         }
                     }
-                } else if (declaration.id.type == 'ObjectPattern' && declaration.init.type == 'CallExpression' && declaration.init.callee.name == 'require') {
-                    if (!dependencies[path.node.loc.filename]) {
-                        dependencies[path.node.loc.filename] = {
+                } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
+                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                        dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'commonjs',
                             'code': [content.split(/\r?\n/)],
                             'dependencyList': [],
@@ -139,7 +140,7 @@ function traverseAST(ast, content) {
                         });
                     });
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        dependencies[path.node.loc.filename]['dependencyList'].push({
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                             'dependencyName': declaration.init.arguments[0].value,
                             'stringLiteral': true,
                             'sideEffectImport': false,
@@ -155,7 +156,7 @@ function traverseAST(ast, content) {
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
                         let binding = path.scope.getBinding(declaration.init.arguments[0].name);
                         if (binding.path.node.type == 'VariableDeclarator') {
-                            dependencies[path.node.loc.filename]['dependencyList'].push({
+                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                                 'dependencyName': binding.path.node.init.value,
                                 'stringLiteral': false,
                                 'sideEffectImport': false,
@@ -177,9 +178,9 @@ function traverseAST(ast, content) {
                             });
                         }
                     }
-                } else if (declaration.id.type == 'Identifier' && declaration.init.type == 'AwaitExpression' && declaration.init.argument.type == 'CallExpression' && declaration.init.argument.callee.type == 'Import') {
-                    if (!dependencies[path.node.loc.filename]) {
-                        dependencies[path.node.loc.filename] = {
+                } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
+                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                        dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'module',
                             'code': [content.split(/\r?\n/)],
                             'dependencyList': [],
@@ -195,7 +196,7 @@ function traverseAST(ast, content) {
                             }
                         });
                     });
-                    dependencies[path.node.loc.filename]['dependencyList'].push({
+                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                         'dependencyName': declaration.init.argument.arguments[0].value,
                         'stringLiteral': null,
                         'sideEffectImport': false,
@@ -208,9 +209,9 @@ function traverseAST(ast, content) {
                             }
                         },
                     });
-                } else if (declaration.id.type == 'ObjectPattern' && declaration.init.type == 'AwaitExpression' && declaration.init.argument.type == 'CallExpression' && declaration.init.argument.callee.type == 'Import') {
-                    if (!dependencies[path.node.loc.filename]) {
-                        dependencies[path.node.loc.filename] = {
+                } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
+                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                        dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'module',
                             'code': [content.split(/\r?\n/)],
                             'dependencyList': [],
@@ -228,7 +229,7 @@ function traverseAST(ast, content) {
                             });
                         });
                     });
-                    dependencies[path.node.loc.filename]['dependencyList'].push({
+                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                         'dependencyName': declaration.init.argument.arguments[0].value,
                         'stringLiteral': null,
                         'sideEffectImport': false,
@@ -246,15 +247,15 @@ function traverseAST(ast, content) {
         },
         ExpressionStatement(path) {
             if (path.node.expression.type == 'CallExpression' && path.node.expression.callee.name == 'require') {
-                if (!dependencies[path.node.loc.filename]) {
-                    dependencies[path.node.loc.filename] = {
+                if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                    dependencies[_path.resolve(path.node.loc.filename)] = {
                         'type': 'commonjs',
                         'code': [content.split(/\r?\n/)],
                         'dependencyList': [],
                     };
                 }
                 if (path.node.expression.arguments[0].type == 'StringLiteral') {
-                    dependencies[path.node.loc.filename]['dependencyList'].push({
+                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                         'dependencyName':  path.node.expression.arguments[0].value,
                         'stringLiteral': true,
                         'identifier': {},
@@ -270,7 +271,7 @@ function traverseAST(ast, content) {
                 } else if (path.node.expression.arguments[0].type == 'Identifier') {
                     let binding = path.scope.getBinding(path.node.expression.arguments[0].name);
                     if (binding.path.node.type == 'VariableDeclarator') {
-                        dependencies[path.node.loc.filename]['dependencyList'].push({
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                             'dependencyName':  binding.path.node.init.value,
                             'stringLiteral': false,
                             'identifier': {
@@ -295,8 +296,8 @@ function traverseAST(ast, content) {
             }
         },
         ImportDeclaration(path) {
-            if (!dependencies[path.node.loc.filename]) {
-                dependencies[path.node.loc.filename] = {
+            if (!dependencies[_path.resolve(path.node.loc.filename)]) {
+                dependencies[_path.resolve(path.node.loc.filename)] = {
                     'type': 'module',
                     'code': [content.split(/\r?\n/)],
                     'dependencyList': [],
@@ -314,7 +315,7 @@ function traverseAST(ast, content) {
                     });
                 });
             });
-            dependencies[path.node.loc.filename]['dependencyList'].push({
+            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
                 'dependencyName':  path.node.source.value,
                 'stringLiteral': null,
                 'identifier': {},
