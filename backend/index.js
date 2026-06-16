@@ -1,36 +1,43 @@
 const express = require('express');
 const app = express();
 const {Worker} = require('worker_threads');
-// const WebSocket = require('ws');
+const fs = require('fs/promises')
+const {setTimeout} = require('timers/promises');
+const path = require('path');
+const {execSync} = require("child_process");
+const projectsDependencies = require('./src/projectsDependencies');
+const findImports = require('./src/findImports');
 
-// const wss = new WebSocket.Server({ port: 8080 });
-// let _ws;
-// wss.on('connection', (ws) => {
-//   _ws = ws;
+const sharedArrayBuffer = new SharedArrayBuffer(1);
 
-//   // Message event handler
-//   _ws.on('message', (message) => {
-    
-//   });
+/**
+ * if resync[0] === 0 -> no changes in files / directories of project directory.
+ * else resync[0] === 1 -> change occured within files / directories of project directory, 
+ *                         needs resyncing of dependency graph.
+ */
+const resync = new Uint8Array(sharedArrayBuffer);
 
-//   // Close event handler
-//   _ws.on('close', () => {
-//     console.log('Client disconnected');
-//   });
-// });
+const worker = new Worker('./backend/worker.js', { workerData: sharedArrayBuffer });
+worker.on('message', (msg) => {});
+worker.on("error", (msg) => console.log(msg));
 
-const worker = new Worker('./backend/worker.js');
-worker.on('message', (result) => {
-  console.log('file path :', result);
-})
-worker.on("error", (msg) => {
-  console.log(msg);
+/** 
+ * GET - project name, third-party dependency(optionally includes devDependencies & nodejs built-in dependencies) 
+ *       including the dependency usage information. 
+*/
+app.get('/dep', async (req, res) => {
+  let dependency = await projectsDependencies();
+  let imports = await findImports();
+  res.send({'projectName': path.basename(process.cwd()), 'dependency': dependency, 'imports': imports});
 });
 
-// GET - dependencies
-app.get('/', async (req, res) => {
-  console.log(process.cwd());
-  res.status(200).json({ project: process.cwd() });
+/**
+ *  GET - dependency information needs to be re-synchronized due to changes within project files.
+ */
+app.get('/resync', (req, res) => {
+  let flag = Atomics.load(resync, 0);
+  Atomics.compareExchange(resync, 0, 1, 0);
+  res.send({'resync': flag});
 });
 
 app.listen(3000, async () => {

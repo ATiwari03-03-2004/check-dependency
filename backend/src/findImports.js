@@ -14,7 +14,7 @@ async function parseFile(path) {
     try {
         content = await fs.readFile(path, { encoding: 'utf8' });
         let ast = parser.parse(content, {
-            sourceType: 'unambiguous', plugins: ['jsx'], sourceFilename: path
+            sourceType: 'unambiguous', plugins: ['jsx'], sourceFilename: path, errorRecovery: true
         });
         return traverseAST(ast, content);
     } catch (err) {
@@ -22,17 +22,17 @@ async function parseFile(path) {
     }
 }
 
-const imports = {};
+let imports = {};
 
 async function scanProject(path) {
     try {
         let files = await readDirectory(path);
         for (const file of files) {
-            if (file.isDirectory() && (file.name[0] != '.' && file.name != 'node_modules' && file.name != 'build' && file.name != 'dist' && file.name != 'test' && file.name != 'tests' && file.name != '__test__' && file.name != '__tests__')) {
+            if (file.isDirectory() && (file.name[0] != '.' && file.name != 'node_modules' && file.name != 'build' && file.name != 'dist' && file.name != 'out' && file.name != 'storybook-static' && file.name != 'coverage' && file.name != 'tmp' && file.name != 'temp' && file.name != 'logs' && file.name != 'expo')) {
                 await scanProject(_path.join(path, file.name));
             } else if (file.isFile() && (file.name.endsWith(".js") || file.name.endsWith(".mjs") || file.name.endsWith(".cjs") || file.name.endsWith(".jsx"))) {
                 let obj = await parseFile(_path.join(path, file.name));
-                Object.assign(imports, obj);
+                imports = { ...imports, ...obj };
             }
         }
     } catch (err) {
@@ -49,4 +49,4 @@ async function findImports() {
     }
 }
 
-module.exports = { findImports, parseFile };
+module.exports = findImports;

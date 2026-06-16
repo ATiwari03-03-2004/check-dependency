@@ -1,5 +1,6 @@
 const traverse = require('@babel/traverse').default;
 const _path = require('path');
+const {resolveSync} = require('./resolve');
 
 /**
  * JSON / Object format after parsing code file
@@ -9,53 +10,60 @@ const _path = require('path');
  *      type: 'commonjs'/'module',
  * 
  *      code: [],
+ * 
+ *      syntaxError: [], // errors encountered by @babel parser during parsing
  *      
- *      dependencyList: [
- *         {
- *             dependencyName: ,
+ *      dependencyList: {
  * 
- *             stringLiteral: true/false, // in the require (commonjs syntax), ignored for type: 'module'
+ *          dependencyName: [{
  * 
- *             sideEffectImport: true/false, // ie. import 'dotenv/config' or require('dotenv/config')
- * 
- *             // if stringLiteral false, then the value of identifier used in require (i.e. dependency value)
- *             identifier: {
- *                  loc: {
- *                       start: ,
- *                       end: ,
- *                   },
- *                   identifierName: ,
- *                   dependencyValue: ,
- *             }, // ignored for type: 'module' and stringLiteral: true
- * 
- *             dependencyIdentifiers: {
- *                  identifier: [
- *                      {
- *                          loc: {
- *                              start: ,
- *                              end: ,
- *                          },
+ *                stringLiteral: true/false, // in the require (commonjs syntax), ignored for type: 'module'
+ *    
+ *                sideEffectImport: true/false, // ie. import 'dotenv/config' or require('dotenv/config')
+ *    
+ *                // if stringLiteral false, then the value of identifier used in require (i.e. dependency value)
+ *                identifier: {
+ *                     loc: {
+ *                          start: ,
+ *                          end: ,
  *                      },
- *                  ],   
- *             }
+ *                      identifierName: ,
+ *                      dependencyValue: ,
+ *                }, // ignored for type: 'module' and stringLiteral: true
+ *    
+ *                dependencyIdentifiers: {
+ *                     identifier: [
+ *                         {
+ *                             loc: {
+ *                                 start: ,
+ *                                 end: ,
+ *                             },
+ *                         },
+ *                     ],   
+ *                }
+ *    
+ *                declaration: {
+ *                      loc: {
+ *                         start: ,
+ *                         end: ,
+ *                     },
+ *                },
  * 
- *             declaration: {
- *                   loc: {
- *                      start: ,
- *                      end: ,
- *                  },
- *             },
+ *                dependencyAbsolutePath: {
+ *                  dependencyPath: ,
+ *                  dependencyType: ,
+ *                }, // using require.resoleve('dependencyName') or fileURLToPath(import.meta.resolve('dependencyNam'))
  * 
- *         },
- *      ],
+ *          },]
+ *      },
  *  },
  * }
- * 
- * Example:
- * ========
- * 
- * 
 */
+
+function isLocalDependency(dependency) {
+    if (dependency.startsWith(".") || dependency.startsWith("..") || _path.isAbsolute(dependency)) return 0;
+    return 1;
+}
 
 function traverseAST(ast, content) {
     const dependencies = {};
@@ -67,7 +75,8 @@ function traverseAST(ast, content) {
                         dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'commonjs',
                             'code': [content.split(/\r?\n/)],
-                            'dependencyList': [],
+                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                            'dependencyList': {},
                         };
                     }
                     let obj = {};
@@ -81,42 +90,52 @@ function traverseAST(ast, content) {
                         });
                     });
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                            'dependencyName': declaration.init.arguments[0].value,
-                            'stringLiteral': true,
-                            'sideEffectImport': false,
-                            'identifier': {},
-                            'dependencyIdentifiers': {...obj},
-                            'declaration': {
-                                'loc': {
-                                    'start': path.node.loc.start,
-                                    'end': path.node.loc.end,
-                                },
-                            }
-                        });
-                    } else if (declaration.init.arguments[0].type == 'Identifier') {
-                        let binding = path.scope.getBinding(declaration.init.arguments[0].name);
-                        if (binding.path.node.type == 'VariableDeclarator') {
-                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                                'dependencyName': binding.path.node.init.value,
-                                'stringLiteral': false,
+                        let notLocal = isLocalDependency(declaration.init.arguments[0].value);
+                        if (notLocal) {
+                            let res = resolveSync(path.node.loc.filename, declaration.init.arguments[0].value);
+                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value] = []
+                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value].push({
+                                'stringLiteral': true,
                                 'sideEffectImport': false,
-                                'identifier': {
-                                    'loc': {
-                                        'start': binding.path.node.loc.start,
-                                        'end': binding.path.node.loc.end,
-                                    },
-                                    'identifierName': declaration.init.arguments[0].name,
-                                    'dependencyValue': binding.path.node.init.value,
-                                },
+                                'identifier': {},
                                 'dependencyIdentifiers': {...obj},
                                 'declaration': {
                                     'loc': {
                                         'start': path.node.loc.start,
                                         'end': path.node.loc.end,
                                     },
-                                }
+                                },
+                                'dependencyAbsolutePath': res,
                             });
+                        }
+                    } else if (declaration.init.arguments[0].type == 'Identifier') {
+                        let binding = path.scope.getBinding(declaration.init.arguments[0].name);
+                        if (binding.path.node.type == 'VariableDeclarator') {
+                            let notLocal = isLocalDependency(binding.path.node.init.value);
+                            if (notLocal) {
+                                let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
+                                if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
+                                dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
+                                    'stringLiteral': false,
+                                    'sideEffectImport': false,
+                                    'identifier': {
+                                        'loc': {
+                                            'start': binding.path.node.loc.start,
+                                            'end': binding.path.node.loc.end,
+                                        },
+                                        'identifierName': declaration.init.arguments[0].name,
+                                        'dependencyValue': binding.path.node.init.value,
+                                    },
+                                    'dependencyIdentifiers': {...obj},
+                                    'declaration': {
+                                        'loc': {
+                                            'start': path.node.loc.start,
+                                            'end': path.node.loc.end,
+                                        },
+                                    },
+                                    'dependencyAbsolutePath': res,
+                                });
+                            }
                         }
                     }
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
@@ -124,7 +143,8 @@ function traverseAST(ast, content) {
                         dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'commonjs',
                             'code': [content.split(/\r?\n/)],
-                            'dependencyList': [],
+                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                            'dependencyList': {},
                         };
                     }
                     let obj = {};
@@ -140,42 +160,52 @@ function traverseAST(ast, content) {
                         });
                     });
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                            'dependencyName': declaration.init.arguments[0].value,
-                            'stringLiteral': true,
-                            'sideEffectImport': false,
-                            'identifier': {},
-                            'dependencyIdentifiers': {...obj},
-                            'declaration': {
-                                'loc': {
-                                    'start': path.node.loc.start,
-                                    'end': path.node.loc.end,
-                                },
-                            }
-                        });
-                    } else if (declaration.init.arguments[0].type == 'Identifier') {
-                        let binding = path.scope.getBinding(declaration.init.arguments[0].name);
-                        if (binding.path.node.type == 'VariableDeclarator') {
-                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                                'dependencyName': binding.path.node.init.value,
-                                'stringLiteral': false,
+                        let notLocal = isLocalDependency(declaration.init.arguments[0].value);
+                        if (notLocal) {
+                            let res = resolveSync(path.node.loc.filename, declaration.init.arguments[0].value);
+                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value] = []
+                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value].push({
+                                'stringLiteral': true,
                                 'sideEffectImport': false,
-                                'identifier': {
-                                    'loc': {
-                                        'start': binding.path.node.loc.start,
-                                        'end': binding.path.node.loc.end,
-                                    },
-                                    'identifierName': declaration.init.arguments[0].name,
-                                    'dependencyValue': binding.path.node.init.value,
-                                },
+                                'identifier': {},
                                 'dependencyIdentifiers': {...obj},
                                 'declaration': {
                                     'loc': {
                                         'start': path.node.loc.start,
                                         'end': path.node.loc.end,
                                     },
-                                }
+                                },
+                                'dependencyAbsolutePath': res,
                             });
+                        }
+                    } else if (declaration.init.arguments[0].type == 'Identifier') {
+                        let binding = path.scope.getBinding(declaration.init.arguments[0].name);
+                        if (binding.path.node.type == 'VariableDeclarator') {
+                            let notLocal = isLocalDependency(binding.path.node.init.value);
+                            if (notLocal) {
+                                let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
+                                if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
+                                dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
+                                    'stringLiteral': false,
+                                    'sideEffectImport': false,
+                                    'identifier': {
+                                        'loc': {
+                                            'start': binding.path.node.loc.start,
+                                            'end': binding.path.node.loc.end,
+                                        },
+                                        'identifierName': declaration.init.arguments[0].name,
+                                        'dependencyValue': binding.path.node.init.value,
+                                    },
+                                    'dependencyIdentifiers': {...obj},
+                                    'declaration': {
+                                        'loc': {
+                                            'start': path.node.loc.start,
+                                            'end': path.node.loc.end,
+                                        },
+                                    },
+                                    'dependencyAbsolutePath': res,
+                                });
+                            }
                         }
                     }
                 } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
@@ -183,7 +213,8 @@ function traverseAST(ast, content) {
                         dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'module',
                             'code': [content.split(/\r?\n/)],
-                            'dependencyList': [],
+                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                            'dependencyList': {},
                         };
                     }
                     let obj = {};
@@ -196,25 +227,31 @@ function traverseAST(ast, content) {
                             }
                         });
                     });
-                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                        'dependencyName': declaration.init.argument.arguments[0].value,
-                        'stringLiteral': null,
-                        'sideEffectImport': false,
-                        'identifier': {},
-                        'dependencyIdentifiers': {...obj},
-                        'declaration': {
-                            'loc': {
-                                'start': path.node.loc.start,
-                                'end': path.node.loc.end,
-                            }
-                        },
-                    });
+                    let notLocal = isLocalDependency(declaration.init.argument.arguments[0].value);
+                    if (notLocal) {
+                        let res = resolveSync(path.node.loc.filename, declaration.init.argument.arguments[0].value);
+                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value] = []
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value].push({
+                            'stringLiteral': null,
+                            'sideEffectImport': false,
+                            'identifier': {},
+                            'dependencyIdentifiers': {...obj},
+                            'declaration': {
+                                'loc': {
+                                    'start': path.node.loc.start,
+                                    'end': path.node.loc.end,
+                                }
+                            },
+                            'dependencyAbsolutePath': res,
+                        });
+                    }
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
                     if (!dependencies[_path.resolve(path.node.loc.filename)]) {
                         dependencies[_path.resolve(path.node.loc.filename)] = {
                             'type': 'module',
                             'code': [content.split(/\r?\n/)],
-                            'dependencyList': [],
+                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                            'dependencyList': {},
                         };
                     }
                     let obj = {};
@@ -229,19 +266,24 @@ function traverseAST(ast, content) {
                             });
                         });
                     });
-                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                        'dependencyName': declaration.init.argument.arguments[0].value,
-                        'stringLiteral': null,
-                        'sideEffectImport': false,
-                        'identifier': {},
-                        'dependencyIdentifiers': {...obj},
-                        'declaration': {
-                            'loc': {
-                                'start': path.node.loc.start,
-                                'end': path.node.loc.end,
+                    let notLocal = isLocalDependency(declaration.init.argument.arguments[0].value);
+                    if (notLocal) {
+                        let res = resolveSync(path.node.loc.filename, declaration.init.argument.arguments[0].value);
+                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value] = []
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value].push({
+                            'stringLiteral': null,
+                            'sideEffectImport': false,
+                            'identifier': {},
+                            'dependencyIdentifiers': {...obj},
+                            'declaration': {
+                                'loc': {
+                                    'start': path.node.loc.start,
+                                    'end': path.node.loc.end,
+                                },
                             },
-                        }
-                    });
+                            'dependencyAbsolutePath': res,
+                        });
+                    }
                 }
             })
         },
@@ -251,37 +293,18 @@ function traverseAST(ast, content) {
                     dependencies[_path.resolve(path.node.loc.filename)] = {
                         'type': 'commonjs',
                         'code': [content.split(/\r?\n/)],
-                        'dependencyList': [],
+                        'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                        'dependencyList': {},
                     };
                 }
                 if (path.node.expression.arguments[0].type == 'StringLiteral') {
-                    dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                        'dependencyName':  path.node.expression.arguments[0].value,
-                        'stringLiteral': true,
-                        'identifier': {},
-                        'sideEffectImport': true,
-                        'dependencyIdentifiers': {},
-                        'declaration': {
-                            'loc': {
-                                'start': path.node.loc.start,
-                                'end': path.node.loc.end,
-                            },
-                        }
-                    });
-                } else if (path.node.expression.arguments[0].type == 'Identifier') {
-                    let binding = path.scope.getBinding(path.node.expression.arguments[0].name);
-                    if (binding.path.node.type == 'VariableDeclarator') {
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                            'dependencyName':  binding.path.node.init.value,
-                            'stringLiteral': false,
-                            'identifier': {
-                                'loc': {
-                                    'start': binding.path.node.loc.start,
-                                    'end': binding.path.node.loc.end,
-                                },
-                                'identifierName': path.node.expression.arguments[0].name,
-                                'dependencyValue': binding.path.node.init.value,
-                            },
+                    let notLocal = isLocalDependency(path.node.expression.arguments[0].value);
+                    if (notLocal) {
+                        let res = resolveSync(path.node.loc.filename, path.node.expression.arguments[0].value);
+                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value] = []
+                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value].push({
+                            'stringLiteral': true,
+                            'identifier': {},
                             'sideEffectImport': true,
                             'dependencyIdentifiers': {},
                             'declaration': {
@@ -289,8 +312,38 @@ function traverseAST(ast, content) {
                                     'start': path.node.loc.start,
                                     'end': path.node.loc.end,
                                 },
-                            }
+                            },
+                            'dependencyAbsolutePath': res,
                         });
+                    }
+                } else if (path.node.expression.arguments[0].type == 'Identifier') {
+                    let binding = path.scope.getBinding(path.node.expression.arguments[0].name);
+                    if (binding.path.node.type == 'VariableDeclarator') {
+                        let notLocal = isLocalDependency(binding.path.node.init.value);
+                        if (notLocal) {
+                            let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
+                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
+                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
+                                'stringLiteral': false,
+                                'identifier': {
+                                    'loc': {
+                                        'start': binding.path.node.loc.start,
+                                        'end': binding.path.node.loc.end,
+                                    },
+                                    'identifierName': path.node.expression.arguments[0].name,
+                                    'dependencyValue': binding.path.node.init.value,
+                                },
+                                'sideEffectImport': true,
+                                'dependencyIdentifiers': {},
+                                'declaration': {
+                                    'loc': {
+                                        'start': path.node.loc.start,
+                                        'end': path.node.loc.end,
+                                    },
+                                },
+                                'dependencyAbsolutePath': res,
+                            });
+                        }
                     }
                 }
             }
@@ -300,7 +353,8 @@ function traverseAST(ast, content) {
                 dependencies[_path.resolve(path.node.loc.filename)] = {
                     'type': 'module',
                     'code': [content.split(/\r?\n/)],
-                    'dependencyList': [],
+                    'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
+                    'dependencyList': {},
                 };
             }
             let obj = {};
@@ -315,19 +369,24 @@ function traverseAST(ast, content) {
                     });
                 });
             });
-            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'].push({
-                'dependencyName':  path.node.source.value,
-                'stringLiteral': null,
-                'identifier': {},
-                'sideEffectImport': (Object.keys(obj).length == 0) ? true : false,
-                'dependencyIdentifiers': {...obj},
-                'declaration': {
-                    'loc': {
-                        'start': path.node.loc.start,
-                        'end': path.node.loc.end,
+            let notLocal = isLocalDependency(path.node.source.value);
+            if (notLocal) {
+                let res = resolveSync(path.node.loc.filename, path.node.source.value);
+                if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.source.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.source.value] = []
+                dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.source.value].push({
+                    'stringLiteral': null,
+                    'identifier': {},
+                    'sideEffectImport': (Object.keys(obj).length == 0) ? true : false,
+                    'dependencyIdentifiers': {...obj},
+                    'declaration': {
+                        'loc': {
+                            'start': path.node.loc.start,
+                            'end': path.node.loc.end,
+                        },
                     },
-                }
-            });
+                    'dependencyAbsolutePath': res,
+                });
+            }
         }
     });
     return dependencies;

@@ -1,5 +1,7 @@
 const findPackages = require('./findPackageJSON');
 const getDependencies = require("./getDependencies");
+const {resolve} = require('./resolve');
+const _path = require('path');
 
 async function projectsDependencies () {
     try {
@@ -10,9 +12,24 @@ async function projectsDependencies () {
         });
         let results = await Promise.all(promises);
         for (let result of results) {
-            if (result) {
-                for (const [key, value] of Object.entries(result)) {
-                    dependencies[key] = value;
+            if (result?.dependencies) {
+                for (const [key, value] of Object.entries(result.dependencies)) {
+                    let path = await resolve(_path.join(result.path, 'package.json'), key);
+                    dependencies[key] = {
+                        'version': value,
+                        'absPath': path.dependencyPath,
+                        'devDependencies': false
+                    };
+                }
+            }
+            if (result?.devDependencies) {
+                for (const [key, value] of Object.entries(result.devDependencies)) {
+                    let path = await resolve(_path.join(result.path, 'package.json'), key);
+                    dependencies[key] = {
+                        'version': value,
+                        'absPath': path.dependencyPath,
+                        'devDependencies': true
+                    };
                 }
             }
         }
