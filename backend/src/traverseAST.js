@@ -1,6 +1,7 @@
 const traverse = require('@babel/traverse').default;
 const _path = require('path');
 const {resolveSync} = require('./resolve');
+const fs = require('fs');
 
 /**
  * JSON / Object format after parsing code file
@@ -52,7 +53,7 @@ const {resolveSync} = require('./resolve');
  *                dependencyAbsolutePath: {
  *                  dependencyPath: ,
  *                  dependencyType: ,
- *                }, // using require.resoleve('dependencyName') or fileURLToPath(import.meta.resolve('dependencyNam'))
+ *                },
  * 
  *          },]
  *      },
@@ -60,315 +61,165 @@ const {resolveSync} = require('./resolve');
  * }
 */
 
+const dependencies = {};
+
 function isLocalDependency(dependency) {
-    if (dependency.startsWith(".") || dependency.startsWith("..") || _path.isAbsolute(dependency)) return 0;
+    if (dependency.startsWith(".") || dependency.startsWith("~") || _path.isAbsolute(dependency)) return 0;
     return 1;
 }
 
+function setDependency(file, type, content, errors) {
+    if (!dependencies[file]) {
+        dependencies[file] = {
+            'type': type,
+            'code': [content.split(/\r?\n/)],
+            'syntaxError': (errors.length > 0) ? errors : [],
+            'dependencyList': {},
+        };
+    }
+}
+
+function getDependencyIdentifiersForIdTypeIdentifier(declarationName, bindings) {
+    let obj = {};
+    obj[declarationName] = [];
+    bindings.referencePaths?.forEach((refPath) => {
+        obj[declarationName].push({
+            'loc': {
+                'start': refPath.parentPath.node.loc.start, 
+                'end': refPath.parentPath.node.loc.end
+            }
+        });
+    });
+    return obj;
+}
+
+function getDependencyIdentifiersForIdObjectPattern(properties, scope) {
+    let obj = {};
+    properties.forEach((property) => {
+        if (property.value) Object.assign(obj, getDependencyIdentifiersForIdTypeIdentifier(property.value.name, scope.getBinding(property.value.name)));
+        else if (property.local) Object.assign(obj, getDependencyIdentifiersForIdTypeIdentifier(property.local.name, scope.getBinding(property.local.name)));
+    });
+    return obj;
+}
+
+function setStringLiteralDependencyInfo(dependency, file, stringLiteral, sideEffectImport, fn, declaration, bindings, loc) {
+    let notLocal = isLocalDependency(dependency);
+    if (notLocal) {
+        let res = resolveSync(file, dependency);
+        if (!dependencies[file]['dependencyList'][dependency]) dependencies[_path.resolve(file)]['dependencyList'][dependency] = []
+        dependencies[file]['dependencyList'][dependency].push({
+            'stringLiteral': stringLiteral,
+            'sideEffectImport': sideEffectImport,
+            'identifier': {},
+            'dependencyIdentifiers': fn ? {...fn(declaration, bindings)} : {},
+            'declaration': {
+                'loc': {
+                    'start': loc.start,
+                    'end': loc.end,
+                },
+            },
+            'dependencyAbsolutePath': res,
+        });
+    }
+}
+
+function setIdentifierDependencyInfo(identifierName, binding, nodeType, dependency, file, stringLiteral, sideEffectImport, identifierBindingLoc, fn, declaration, bindings, loc) {
+    if (nodeType == 'VariableDeclarator') {
+        let notLocal = isLocalDependency(dependency);
+        if (notLocal) {
+            let res = resolveSync(file, dependency);
+            if (!dependencies[_path.resolve(file)]['dependencyList'][dependency]) dependencies[_path.resolve(file)]['dependencyList'][dependency] = []
+            dependencies[_path.resolve(file)]['dependencyList'][dependency].push({
+                'stringLiteral': stringLiteral,
+                'sideEffectImport': sideEffectImport,
+                'identifier': {
+                    'loc': {
+                        'start': identifierBindingLoc.start,
+                        'end': identifierBindingLoc.end,
+                    },
+                    'identifierName': identifierName,
+                    'dependencyValue': dependency,
+                },
+                'dependencyIdentifiers': {...fn(declaration, bindings)},
+                'declaration': {
+                    'loc': {
+                        'start': loc.start,
+                        'end': loc.end,
+                    },
+                },
+                'dependencyAbsolutePath': res,
+            });
+        }
+    }
+}
+
 function traverseAST(ast, content) {
-    const dependencies = {};
     traverse(ast, {
         VariableDeclaration(path) {
             path.node.declarations.forEach((declaration) => {
-                if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
-                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                        dependencies[_path.resolve(path.node.loc.filename)] = {
-                            'type': 'commonjs',
-                            'code': [content.split(/\r?\n/)],
-                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                            'dependencyList': {},
-                        };
+                if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'MemberExpression' && declaration.init?.object?.type == 'CallExpression' && declaration.init?.object?.callee?.name == 'require') {
+                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);      
+                    if (declaration.init.object.arguments[0].type == 'StringLiteral') {
+                        setStringLiteralDependencyInfo(declaration.init.object.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc)
+                    } else if (declaration.init.object.arguments[0].type == 'Identifier') {
+                        let binding = path.scope.getBinding(declaration.init.object.arguments[0].name);
+                        setIdentifierDependencyInfo(declaration.init.object.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     }
-                    let obj = {};
-                    obj[declaration.id.name] = [];
-                    path.scope.getBinding(declaration.id.name).referencePaths?.forEach((refPath) => {
-                        obj[declaration.id.name].push({
-                            'loc': {
-                                'start': refPath.parentPath.node.loc.start, 
-                                'end': refPath.parentPath.node.loc.end
-                            }
-                        });
-                    });
+                } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'MemberExpression' && declaration.init?.object?.type == 'CallExpression' && declaration.init?.object?.callee?.name == 'require') {
+                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                    if (declaration.init.object.arguments[0].type == 'StringLiteral') {
+                        setStringLiteralDependencyInfo(declaration.init.object.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
+                    } else if (declaration.init.object.arguments[0].type == 'Identifier') {
+                        let binding = path.scope.getBinding(declaration.init.object.arguments[0].name);
+                        setIdentifierDependencyInfo(declaration.init.object.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
+                    }
+                } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
+                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        let notLocal = isLocalDependency(declaration.init.arguments[0].value);
-                        if (notLocal) {
-                            let res = resolveSync(path.node.loc.filename, declaration.init.arguments[0].value);
-                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value] = []
-                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value].push({
-                                'stringLiteral': true,
-                                'sideEffectImport': false,
-                                'identifier': {},
-                                'dependencyIdentifiers': {...obj},
-                                'declaration': {
-                                    'loc': {
-                                        'start': path.node.loc.start,
-                                        'end': path.node.loc.end,
-                                    },
-                                },
-                                'dependencyAbsolutePath': res,
-                            });
-                        }
+                        setStringLiteralDependencyInfo(declaration.init.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
                         let binding = path.scope.getBinding(declaration.init.arguments[0].name);
-                        if (binding.path.node.type == 'VariableDeclarator') {
-                            let notLocal = isLocalDependency(binding.path.node.init.value);
-                            if (notLocal) {
-                                let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
-                                if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
-                                dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
-                                    'stringLiteral': false,
-                                    'sideEffectImport': false,
-                                    'identifier': {
-                                        'loc': {
-                                            'start': binding.path.node.loc.start,
-                                            'end': binding.path.node.loc.end,
-                                        },
-                                        'identifierName': declaration.init.arguments[0].name,
-                                        'dependencyValue': binding.path.node.init.value,
-                                    },
-                                    'dependencyIdentifiers': {...obj},
-                                    'declaration': {
-                                        'loc': {
-                                            'start': path.node.loc.start,
-                                            'end': path.node.loc.end,
-                                        },
-                                    },
-                                    'dependencyAbsolutePath': res,
-                                });
-                            }
-                        }
+                        setIdentifierDependencyInfo(declaration.init.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     }
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
-                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                        dependencies[_path.resolve(path.node.loc.filename)] = {
-                            'type': 'commonjs',
-                            'code': [content.split(/\r?\n/)],
-                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                            'dependencyList': {},
-                        };
-                    }
-                    let obj = {};
-                    declaration.id.properties.forEach((property) => {
-                        obj[property.value.name] = [];
-                        path.scope.getBinding(property.value.name).referencePaths?.forEach((refPath) => {
-                            obj[property.value.name].push({
-                                'loc': {
-                                    'start': refPath.parentPath.node.loc.start,
-                                    'end': refPath.parentPath.node.loc.end,
-                                }
-                            });
-                        });
-                    });
+                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
-                        let notLocal = isLocalDependency(declaration.init.arguments[0].value);
-                        if (notLocal) {
-                            let res = resolveSync(path.node.loc.filename, declaration.init.arguments[0].value);
-                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value] = []
-                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.arguments[0].value].push({
-                                'stringLiteral': true,
-                                'sideEffectImport': false,
-                                'identifier': {},
-                                'dependencyIdentifiers': {...obj},
-                                'declaration': {
-                                    'loc': {
-                                        'start': path.node.loc.start,
-                                        'end': path.node.loc.end,
-                                    },
-                                },
-                                'dependencyAbsolutePath': res,
-                            });
-                        }
+                        setStringLiteralDependencyInfo(declaration.init.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
                         let binding = path.scope.getBinding(declaration.init.arguments[0].name);
-                        if (binding.path.node.type == 'VariableDeclarator') {
-                            let notLocal = isLocalDependency(binding.path.node.init.value);
-                            if (notLocal) {
-                                let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
-                                if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
-                                dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
-                                    'stringLiteral': false,
-                                    'sideEffectImport': false,
-                                    'identifier': {
-                                        'loc': {
-                                            'start': binding.path.node.loc.start,
-                                            'end': binding.path.node.loc.end,
-                                        },
-                                        'identifierName': declaration.init.arguments[0].name,
-                                        'dependencyValue': binding.path.node.init.value,
-                                    },
-                                    'dependencyIdentifiers': {...obj},
-                                    'declaration': {
-                                        'loc': {
-                                            'start': path.node.loc.start,
-                                            'end': path.node.loc.end,
-                                        },
-                                    },
-                                    'dependencyAbsolutePath': res,
-                                });
-                            }
-                        }
+                        setIdentifierDependencyInfo(declaration.init.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     }
                 } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
-                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                        dependencies[_path.resolve(path.node.loc.filename)] = {
-                            'type': 'module',
-                            'code': [content.split(/\r?\n/)],
-                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                            'dependencyList': {},
-                        };
-                    }
-                    let obj = {};
-                    obj[declaration.id.name] = [];
-                    path.scope.getBinding(declaration.id.name).referencePaths?.forEach((refPath) => {
-                        obj[declaration.id.name].push({
-                            'loc': {
-                                'start': refPath.parentPath.node.loc.start,
-                                'end': refPath.parentPath.node.loc.end,
-                            }
-                        });
-                    });
-                    let notLocal = isLocalDependency(declaration.init.argument.arguments[0].value);
-                    if (notLocal) {
-                        let res = resolveSync(path.node.loc.filename, declaration.init.argument.arguments[0].value);
-                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value] = []
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value].push({
-                            'stringLiteral': null,
-                            'sideEffectImport': false,
-                            'identifier': {},
-                            'dependencyIdentifiers': {...obj},
-                            'declaration': {
-                                'loc': {
-                                    'start': path.node.loc.start,
-                                    'end': path.node.loc.end,
-                                }
-                            },
-                            'dependencyAbsolutePath': res,
-                        });
-                    }
+                    setDependency(path.node.loc.filename, 'module', content, ast.errors);
+                    setStringLiteralDependencyInfo(declaration.init.argument.arguments[0].value, path.node.loc.filename, null, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
-                    if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                        dependencies[_path.resolve(path.node.loc.filename)] = {
-                            'type': 'module',
-                            'code': [content.split(/\r?\n/)],
-                            'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                            'dependencyList': {},
-                        };
-                    }
-                    let obj = {};
-                    declaration.id.properties.forEach((property) => {
-                        obj[property.value.name] = [];
-                        path.scope.getBinding(property.value.name).referencePaths?.forEach((refPath) => {
-                            obj[property.value.name].push({
-                                'loc': {
-                                    'start': refPath.parentPath.node.loc.start,
-                                    'end': refPath.parentPath.node.loc.end,
-                                }
-                            });
-                        });
-                    });
-                    let notLocal = isLocalDependency(declaration.init.argument.arguments[0].value);
-                    if (notLocal) {
-                        let res = resolveSync(path.node.loc.filename, declaration.init.argument.arguments[0].value);
-                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value] = []
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][declaration.init.argument.arguments[0].value].push({
-                            'stringLiteral': null,
-                            'sideEffectImport': false,
-                            'identifier': {},
-                            'dependencyIdentifiers': {...obj},
-                            'declaration': {
-                                'loc': {
-                                    'start': path.node.loc.start,
-                                    'end': path.node.loc.end,
-                                },
-                            },
-                            'dependencyAbsolutePath': res,
-                        });
-                    }
+                    setDependency(path.node.loc.filename, 'module', content, ast.errors);
+                    setStringLiteralDependencyInfo(declaration.init.argument.arguments[0].value, path.node.loc.filename, null, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                 }
             })
         },
         ExpressionStatement(path) {
             if (path.node.expression.type == 'CallExpression' && path.node.expression.callee.name == 'require') {
-                if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                    dependencies[_path.resolve(path.node.loc.filename)] = {
-                        'type': 'commonjs',
-                        'code': [content.split(/\r?\n/)],
-                        'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                        'dependencyList': {},
-                    };
-                }
+                setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
                 if (path.node.expression.arguments[0].type == 'StringLiteral') {
-                    let notLocal = isLocalDependency(path.node.expression.arguments[0].value);
-                    if (notLocal) {
-                        let res = resolveSync(path.node.loc.filename, path.node.expression.arguments[0].value);
-                        if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value] = []
-                        dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][path.node.expression.arguments[0].value].push({
-                            'stringLiteral': true,
-                            'identifier': {},
-                            'sideEffectImport': true,
-                            'dependencyIdentifiers': {},
-                            'declaration': {
-                                'loc': {
-                                    'start': path.node.loc.start,
-                                    'end': path.node.loc.end,
-                                },
-                            },
-                            'dependencyAbsolutePath': res,
-                        });
-                    }
+                    setStringLiteralDependencyInfo(path.node.expression.arguments[0].value, path.node.loc.filename, true, true, undefined, undefined, undefined, path.node.loc);
                 } else if (path.node.expression.arguments[0].type == 'Identifier') {
                     let binding = path.scope.getBinding(path.node.expression.arguments[0].name);
-                    if (binding.path.node.type == 'VariableDeclarator') {
-                        let notLocal = isLocalDependency(binding.path.node.init.value);
-                        if (notLocal) {
-                            let res = resolveSync(path.node.loc.filename, binding.path.node.init.value);
-                            if (!dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value]) dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value] = []
-                            dependencies[_path.resolve(path.node.loc.filename)]['dependencyList'][binding.path.node.init.value].push({
-                                'stringLiteral': false,
-                                'identifier': {
-                                    'loc': {
-                                        'start': binding.path.node.loc.start,
-                                        'end': binding.path.node.loc.end,
-                                    },
-                                    'identifierName': path.node.expression.arguments[0].name,
-                                    'dependencyValue': binding.path.node.init.value,
-                                },
-                                'sideEffectImport': true,
-                                'dependencyIdentifiers': {},
-                                'declaration': {
-                                    'loc': {
-                                        'start': path.node.loc.start,
-                                        'end': path.node.loc.end,
-                                    },
-                                },
-                                'dependencyAbsolutePath': res,
-                            });
-                        }
-                    }
+                    setIdentifierDependencyInfo(path.node.expression.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, true, binding.path.node.loc, undefined, undefined, undefined, path.node.loc);
+                }
+            } else if (path.node.expression.type == 'CallExpression' && path.node.expression.callee.type == 'MemberExpression' && path.node.expression.callee.object.type == 'CallExpression' && path.node.expression.callee.object.callee.name == 'require') {
+                setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                if (path.node.expression.callee.object.arguments[0].type == 'StringLiteral') {
+                    setStringLiteralDependencyInfo(path.node.expression.callee.object.arguments[0].value, path.node.loc.filename, true, true, undefined, undefined, undefined, path.node.loc);
+                } else if (path.node.expression.callee.object.arguments[0].type == 'Identifier') {
+                    let binding = path.scope.getBinding(path.node.expression.callee.object.arguments[0].name);
+                    setIdentifierDependencyInfo(path.node.expression.callee.object.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, true, binding.path.node.loc, undefined, undefined, undefined, path.node.loc);
                 }
             }
         },
         ImportDeclaration(path) {
-            if (!dependencies[_path.resolve(path.node.loc.filename)]) {
-                dependencies[_path.resolve(path.node.loc.filename)] = {
-                    'type': 'module',
-                    'code': [content.split(/\r?\n/)],
-                    'syntaxError': (ast.errors.length > 0) ? ast.errors : [],
-                    'dependencyList': {},
-                };
-            }
-            let obj = {};
-            path.node.specifiers.forEach((specifier) => {
-                obj[specifier.local.name] = [];
-                path.scope.getBinding(specifier.local.name).referencePaths?.forEach((refPath) => {
-                    obj[specifier.local.name].push({
-                        'loc': {
-                            'start': refPath.parentPath.node.loc.start,
-                            'end': refPath.parentPath.node.loc.end,
-                        }
-                    });
-                });
-            });
+            setDependency(path.node.loc.filename, 'module', content, ast.errors);
+            let obj = getDependencyIdentifiersForIdObjectPattern(path.node.specifiers, path.scope);
             let notLocal = isLocalDependency(path.node.source.value);
             if (notLocal) {
                 let res = resolveSync(path.node.loc.filename, path.node.source.value);

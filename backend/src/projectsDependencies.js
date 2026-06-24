@@ -15,9 +15,9 @@ async function projectsDependencies () {
             if (result?.dependencies) {
                 for (const [key, value] of Object.entries(result.dependencies)) {
                     let path = await resolve(_path.join(result.path, 'package.json'), key);
-                    dependencies[key] = {
+                    dependencies[path.dependencyPath] = {
                         'version': value,
-                        'absPath': path.dependencyPath,
+                        'dependency': key,
                         'devDependencies': false
                     };
                 }
@@ -25,9 +25,9 @@ async function projectsDependencies () {
             if (result?.devDependencies) {
                 for (const [key, value] of Object.entries(result.devDependencies)) {
                     let path = await resolve(_path.join(result.path, 'package.json'), key);
-                    dependencies[key] = {
+                    dependencies[path.dependencyPath] = {
                         'version': value,
-                        'absPath': path.dependencyPath,
+                        'dependency': key,
                         'devDependencies': true
                     };
                 }

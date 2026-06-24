@@ -1,12 +1,8 @@
 const express = require('express');
 const app = express();
 const {Worker} = require('worker_threads');
-const fs = require('fs/promises')
-const {setTimeout} = require('timers/promises');
 const path = require('path');
-const {execSync} = require("child_process");
-const projectsDependencies = require('./src/projectsDependencies');
-const findImports = require('./src/findImports');
+const generateHierarchy = require('./src/normarlizeAndGenerateHierarchy');
 
 const sharedArrayBuffer = new SharedArrayBuffer(1);
 
@@ -23,12 +19,11 @@ worker.on("error", (msg) => console.log(msg));
 
 /** 
  * GET - project name, third-party dependency(optionally includes devDependencies & nodejs built-in dependencies) 
- *       including the dependency usage information. 
+ *       including the dependency usage information.
 */
 app.get('/dep', async (req, res) => {
-  let dependency = await projectsDependencies();
-  let imports = await findImports();
-  res.send({'projectName': path.basename(process.cwd()), 'dependency': dependency, 'imports': imports});
+  let result = await generateHierarchy(path.basename(process.cwd()));
+  res.send(result);
 });
 
 /**
