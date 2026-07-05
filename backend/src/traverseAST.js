@@ -10,9 +10,7 @@ const fs = require('fs');
  *  filepath: {
  *      type: 'commonjs'/'module',
  * 
- *      code: [],
- * 
- *      syntaxError: [], // errors encountered by @babel parser during parsing
+ *      error: true/false, @babel parser is in errorRecovery mode, so describes if any error encountered while parsing
  *      
  *      dependencyList: {
  * 
@@ -68,12 +66,11 @@ function isLocalDependency(dependency) {
     return 1;
 }
 
-function setDependency(file, type, content, errors) {
+function setDependency(file, type, errors) {
     if (!dependencies[file]) {
         dependencies[file] = {
             'type': type,
-            'code': [content.split(/\r?\n/)],
-            'syntaxError': (errors.length > 0) ? errors : [],
+            'error': (errors.length > 0) ? true : false,
             'dependencyList': {},
         };
     }
@@ -153,12 +150,12 @@ function setIdentifierDependencyInfo(identifierName, binding, nodeType, dependen
     }
 }
 
-function traverseAST(ast, content) {
+function traverseAST(ast) {
     traverse(ast, {
         VariableDeclaration(path) {
             path.node.declarations.forEach((declaration) => {
                 if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'MemberExpression' && declaration.init?.object?.type == 'CallExpression' && declaration.init?.object?.callee?.name == 'require') {
-                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);      
+                    setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                     if (declaration.init.object.arguments[0].type == 'StringLiteral') {
                         setStringLiteralDependencyInfo(declaration.init.object.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc)
                     } else if (declaration.init.object.arguments[0].type == 'Identifier') {
@@ -166,7 +163,7 @@ function traverseAST(ast, content) {
                         setIdentifierDependencyInfo(declaration.init.object.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     }
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'MemberExpression' && declaration.init?.object?.type == 'CallExpression' && declaration.init?.object?.callee?.name == 'require') {
-                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                    setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                     if (declaration.init.object.arguments[0].type == 'StringLiteral') {
                         setStringLiteralDependencyInfo(declaration.init.object.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     } else if (declaration.init.object.arguments[0].type == 'Identifier') {
@@ -174,7 +171,7 @@ function traverseAST(ast, content) {
                         setIdentifierDependencyInfo(declaration.init.object.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     }
                 } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
-                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                    setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
                         setStringLiteralDependencyInfo(declaration.init.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
@@ -182,7 +179,7 @@ function traverseAST(ast, content) {
                         setIdentifierDependencyInfo(declaration.init.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                     }
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'CallExpression' && declaration.init?.callee?.name == 'require') {
-                    setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                    setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                     if (declaration.init.arguments[0].type == 'StringLiteral') {
                         setStringLiteralDependencyInfo(declaration.init.arguments[0].value, path.node.loc.filename, true, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     } else if (declaration.init.arguments[0].type == 'Identifier') {
@@ -190,17 +187,17 @@ function traverseAST(ast, content) {
                         setIdentifierDependencyInfo(declaration.init.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, false, binding.path.node.loc, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                     }
                 } else if (declaration.id?.type == 'Identifier' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
-                    setDependency(path.node.loc.filename, 'module', content, ast.errors);
+                    setDependency(path.node.loc.filename, 'module', ast.errors);
                     setStringLiteralDependencyInfo(declaration.init.argument.arguments[0].value, path.node.loc.filename, null, false, getDependencyIdentifiersForIdTypeIdentifier, declaration.id.name, path.scope.getBinding(declaration.id.name), path.node.loc);
                 } else if (declaration.id?.type == 'ObjectPattern' && declaration.init?.type == 'AwaitExpression' && declaration.init?.argument?.type == 'CallExpression' && declaration.init?.argument?.callee?.type == 'Import') {
-                    setDependency(path.node.loc.filename, 'module', content, ast.errors);
+                    setDependency(path.node.loc.filename, 'module', ast.errors);
                     setStringLiteralDependencyInfo(declaration.init.argument.arguments[0].value, path.node.loc.filename, null, false, getDependencyIdentifiersForIdObjectPattern, declaration.id.properties, path.scope, path.node.loc);
                 }
             })
         },
         ExpressionStatement(path) {
             if (path.node.expression.type == 'CallExpression' && path.node.expression.callee.name == 'require') {
-                setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                 if (path.node.expression.arguments[0].type == 'StringLiteral') {
                     setStringLiteralDependencyInfo(path.node.expression.arguments[0].value, path.node.loc.filename, true, true, undefined, undefined, undefined, path.node.loc);
                 } else if (path.node.expression.arguments[0].type == 'Identifier') {
@@ -208,7 +205,7 @@ function traverseAST(ast, content) {
                     setIdentifierDependencyInfo(path.node.expression.arguments[0].name, binding, binding.path.node.type, binding.path.node.init.value, path.node.loc.filename, false, true, binding.path.node.loc, undefined, undefined, undefined, path.node.loc);
                 }
             } else if (path.node.expression.type == 'CallExpression' && path.node.expression.callee.type == 'MemberExpression' && path.node.expression.callee.object.type == 'CallExpression' && path.node.expression.callee.object.callee.name == 'require') {
-                setDependency(path.node.loc.filename, 'commonjs', content, ast.errors);
+                setDependency(path.node.loc.filename, 'commonjs', ast.errors);
                 if (path.node.expression.callee.object.arguments[0].type == 'StringLiteral') {
                     setStringLiteralDependencyInfo(path.node.expression.callee.object.arguments[0].value, path.node.loc.filename, true, true, undefined, undefined, undefined, path.node.loc);
                 } else if (path.node.expression.callee.object.arguments[0].type == 'Identifier') {
@@ -218,7 +215,7 @@ function traverseAST(ast, content) {
             }
         },
         ImportDeclaration(path) {
-            setDependency(path.node.loc.filename, 'module', content, ast.errors);
+            setDependency(path.node.loc.filename, 'module', ast.errors);
             let obj = getDependencyIdentifiersForIdObjectPattern(path.node.specifiers, path.scope);
             let notLocal = isLocalDependency(path.node.source.value);
             if (notLocal) {
