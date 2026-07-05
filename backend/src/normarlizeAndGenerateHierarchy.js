@@ -1,10 +1,9 @@
 const projectsDependencies = require('./projectsDependencies');
 const findImports = require('./findImports');
-const fs = require('fs/promises');
-const {existsSync} = require('fs');
 const path = require('path');
+const fs = require('fs/promises');
 
-const dependenciesInfo = {}, unusedDependenciesInfo = {}, treeData = {}, source = {};
+const dependenciesInfo = {}, unusedDependenciesInfo = {}, treeData = {};
 
 function setObjs(dep, file, declaration, sideEffectImport, dependencyIdentifiers, stringLiteral, identifier, dependencyType, _dependency, dependencyPath, devDependencies, version) {
     if (treeData['root']['children'].indexOf(dep) === -1) treeData['root']['children'].push(dep);
@@ -14,7 +13,7 @@ function setObjs(dep, file, declaration, sideEffectImport, dependencyIdentifiers
         'declaration': declaration,
         'sideEffect': sideEffectImport,
         'usage': dependencyIdentifiers,
-        'declarationIdentifier': stringLiteral ? {} : identifier,
+        'moduleIdentifier': stringLiteral ? {} : identifier,
         'dependencyType': dependencyType,
         'dependencyValue': _dependency,
         'dependencyPath': dependencyPath,
@@ -25,12 +24,12 @@ function setObjs(dep, file, declaration, sideEffectImport, dependencyIdentifiers
     else if (treeData[dep]['children'].indexOf(file) === -1) treeData[dep]['children'].push(file);
 }
 
-async function normarlizeAndGenerateHierarchy(projectsrc) {
+async function normarlizeAndGenerateHierarchy(projectsrc, scanProject = true, _files = []) {
     try {
         treeData['root'] = { 'label': [projectsrc, process.cwd()], 'level': 0, 'children': [] };
         let dependency = await projectsDependencies();
-        let imports = await findImports();
-        await fs.writeFile(path.join(process.cwd(), 'check.json'), JSON.stringify(imports), {encoding: 'utf8'});
+        await fs.writeFile(path.join(process.cwd(), 'check-dependency-data', 'dependency.json'), JSON.stringify(dependency), 'utf8');
+        let imports = await findImports(scanProject, _files);
         let files = Object.keys(imports);
         for (let file of files) {
             let _dependencies = Object.keys(imports[file]['dependencyList']);
@@ -51,13 +50,11 @@ async function normarlizeAndGenerateHierarchy(projectsrc) {
                             }
                         }
                     } else if (d['dependencyAbsolutePath']['dependencyType'] === 'global' && d['dependencyAbsolutePath']['dependencyPath'].includes('node_modules')) {
-                        console.log(_dependency);
                         setObjs(_dependency, file, d['declaration'], d['sideEffectImport'], d['dependencyIdentifiers'], d['stringLiteral'], d['identifier'], 'global', _dependency, d['dependencyAbsolutePath']['dependencyPath'], undefined, undefined);
                     }
                 });
             }
-            source[file] = { type: imports[file]['type'], name: file.split('\\').slice(-2).join('\\'), code: imports[file]['code'], syntaxError: imports[file]['syntaxError'] };
-            treeData[file] = { 'label': source[file]['name'], 'level': 2, 'children': [] };
+            treeData[file] = { 'label': file.split('\\').slice(-2).join('\\'), 'level': 2, 'children': [], 'error': imports[file]['error'] };
         }
         Object.keys(dependency).forEach(d => {
             if (treeData['root']['children'].indexOf(dependency[d]['dependency']) === -1) treeData['root']['children'].push(dependency[d]['dependency']);
@@ -72,7 +69,9 @@ async function normarlizeAndGenerateHierarchy(projectsrc) {
                 });
             }
         });
-        return { dependenciesInfo, unusedDependenciesInfo, treeData, source };
+        let result = { dependenciesInfo, unusedDependenciesInfo, treeData };
+        await fs.writeFile(path.join(process.cwd(), 'check-dependency-data', 'response.json'), JSON.stringify(result), 'utf8');
+        return result;
     } catch (err) {
         return { error: err };
     }
