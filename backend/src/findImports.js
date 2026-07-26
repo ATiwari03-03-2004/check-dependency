@@ -3,8 +3,6 @@ const fs = require('fs/promises');
 const _path = require('path');
 const os = require('os');
 const { Worker } = require('worker_threads');
-const { resolve } = require('dns');
-const { rejects } = require('assert');
 
 const MAX_WORKERS = Math.max(os.cpus().length - 1, 1);
 
@@ -28,7 +26,7 @@ async function scanProject(path, _files) {
     }
 }
 
-const imports = {};
+let imports = {};
 
 /**
  * Promisified worker threads for parsing a file.
@@ -64,9 +62,8 @@ async function getParsedInfo(_files) {
 
 async function findImports(scanProj, _files) {
     try {
-        if (scanProj) {
-            await scanProject(process.cwd(), _files);
-        }
+        imports = {};
+        if (scanProj)  await scanProject(process.cwd(), _files);
         await getParsedInfo(_files);
         return imports;
     } catch (err) {

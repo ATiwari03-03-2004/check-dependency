@@ -1,9 +1,8 @@
 const projectsDependencies = require('./projectsDependencies');
 const findImports = require('./findImports');
 const path = require('path');
-const fs = require('fs/promises');
 
-const dependenciesInfo = {}, unusedDependenciesInfo = {}, treeData = {};
+let dependenciesInfo = {}, unusedDependenciesInfo = {}, treeData = {};
 
 function setObjs(dep, file, declaration, sideEffectImport, dependencyIdentifiers, stringLiteral, identifier, dependencyType, _dependency, dependencyPath, devDependencies, version) {
     if (treeData['root']['children'].indexOf(dep) === -1) treeData['root']['children'].push(dep);
@@ -28,7 +27,6 @@ async function normarlizeAndGenerateHierarchy(projectsrc, scanProject = true, _f
     try {
         treeData['root'] = { 'label': [projectsrc, process.cwd()], 'level': 0, 'children': [] };
         let dependency = await projectsDependencies();
-        await fs.writeFile(path.join(process.cwd(), 'check-dependency-data', 'dependency.json'), JSON.stringify(dependency), 'utf8');
         let imports = await findImports(scanProject, _files);
         let files = Object.keys(imports);
         for (let file of files) {
@@ -56,21 +54,30 @@ async function normarlizeAndGenerateHierarchy(projectsrc, scanProject = true, _f
             }
             treeData[file] = { 'label': file.split('\\').slice(-2).join('\\'), 'level': 2, 'children': [], 'error': imports[file]['error'] };
         }
-        Object.keys(dependency).forEach(d => {
-            if (treeData['root']['children'].indexOf(dependency[d]['dependency']) === -1) treeData['root']['children'].push(dependency[d]['dependency']);
-            if (!dependenciesInfo[dependency[d]['dependency']]) {
-                if (!unusedDependenciesInfo[dependency[d]['dependency']]) unusedDependenciesInfo[dependency[d]['dependency']] = [];
-                unusedDependenciesInfo[dependency[d]['dependency']].push({
-                    'dependencyType': 'local',
-                    'dependencyValue': dependency[d]['dependency'],
-                    'dependencyPath': d,
-                    'devDependencies': dependency[d]['devDependencies'],
-                    'dependencyVersion': dependency[d]['version'],
-                });
-            }
-        });
+        if (scanProject) {
+            Object.keys(dependency).forEach(d => {
+                if (treeData['root']['children'].indexOf(dependency[d]['dependency']) === -1) {
+                    treeData['root']['children'].push(dependency[d]['dependency']);
+                    treeData[dependency[d]['dependency']] = {
+                        "label": dependency[d]['dependency'],
+                        "level": 1,
+                        "children": []
+                    };
+                }
+                if (!dependenciesInfo[dependency[d]['dependency']]) {
+                    if (!unusedDependenciesInfo[dependency[d]['dependency']]) unusedDependenciesInfo[dependency[d]['dependency']] = [];
+                    unusedDependenciesInfo[dependency[d]['dependency']].push({
+                        'dependencyType': 'local',
+                        'dependencyValue': dependency[d]['dependency'],
+                        'dependencyPath': d,
+                        'devDependencies': dependency[d]['devDependencies'],
+                        'dependencyVersion': dependency[d]['version'],
+                    });
+                }
+            });
+        }
         let result = { dependenciesInfo, unusedDependenciesInfo, treeData };
-        await fs.writeFile(path.join(process.cwd(), 'check-dependency-data', 'response.json'), JSON.stringify(result), 'utf8');
+        dependenciesInfo = {}, unusedDependenciesInfo = {}, treeData = {};
         return result;
     } catch (err) {
         return { error: err };

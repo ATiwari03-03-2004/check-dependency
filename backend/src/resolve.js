@@ -49,7 +49,7 @@ async function resolve(_path, dependency) {
             }
         }
     }
-    return {'error': `${dependency} could't be resolved!`};
+    return {'error': `${dependency} couldn't be resolved!`};
 }
 
 /** 
@@ -93,7 +93,7 @@ function resolveSync(_path, dependency) {
             }
         }
     }
-    return {'error': `${dependency} could't be resolved!`};
+    return {'error': `${dependency} couldn't be resolved!`};
 }
 
 module.exports = { resolve, resolveSync };
