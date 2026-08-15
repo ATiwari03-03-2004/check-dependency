@@ -1,0 +1,6 @@
+# This file exists mainly so npm does NOT fall back to .gitignore, which
+# excludes ui/ — that directory is build output we deliberately publish.
+# The "files" allowlist in package.json is what actually decides the contents.
+
+*.log
+.DS_Store

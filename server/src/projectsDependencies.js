@@ -18,7 +18,7 @@ async function projectsDependencies(flag = true, files) {
             results = await Promise.all(promises);
         } else {
             const promises = files.map((pkg) => {
-                return getDependencies(pkg.split('\\').slice(0, pkg.split('\\').length - 1).join('\\'));
+                return getDependencies(_path.dirname(pkg));
             });
             results = await Promise.all(promises);
         }

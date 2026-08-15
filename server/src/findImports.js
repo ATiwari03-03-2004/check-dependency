@@ -33,7 +33,8 @@ let imports = {};
  */
 function parse(path) {
     return new Promise((resolve, reject) => {
-        const worker = new Worker('./backend/src/fileParser-worker.js', { 'workerData': path });
+        // Resolved against this file: process.cwd() is the project being scanned, not ours.
+        const worker = new Worker(_path.join(__dirname, 'fileParser-worker.js'), { 'workerData': path });
         worker.on('message', (msg) => resolve(msg));
         worker.on('error', (err) => reject(new Error(`Error parsing ${path}: ${err.message}`)));
         worker.on('exit', (code) => reject(new Error(`Worker stopped parsing with exit code ${code}`)));

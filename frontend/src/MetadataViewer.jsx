@@ -18,6 +18,15 @@ const TOKEN =
 
 const LINE_LIMIT = 4000;
 
+/**
+ * Last two segments of an absolute path, enough to identify a file without the
+ * noise. Paths arrive with the server's separator, so accept either.
+ */
+function tailOfPath(file) {
+  const separator = file.includes("\\") ? "\\" : "/";
+  return file.split(/[\\/]/).slice(-2).join(separator);
+}
+
 function tokenize(line) {
   const parts = [];
   let cursor = 0;
@@ -331,7 +340,7 @@ function DependencyBody({ meta, onSelect }) {
                     className="filelist__item"
                     onClick={() => onSelect(fileNodeId(meta.dep, file))}
                   >
-                    <span className="filelist__name">{file.split("\\").slice(-2).join("\\")}</span>
+                    <span className="filelist__name">{tailOfPath(file)}</span>
                     <span className="filelist__meta">
                       L{entries[0]?.declaration?.loc?.start.line ?? "?"} · {refs} ref
                       {refs === 1 ? "" : "s"}

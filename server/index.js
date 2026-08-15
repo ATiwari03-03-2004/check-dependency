@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const app = express();
 const { Worker } = require('worker_threads');
 const path = require('path');
@@ -10,11 +9,12 @@ const _fs = require('fs');
 const projectsDependencies = require('./src/projectsDependencies');
 const { resolve } = require('./src/resolve');
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+/** The built frontend, shipped inside the package — never inside the scanned project. */
+const UI_DIR = path.join(__dirname, '..', 'ui');
 
 const uuidResMap = new Map();
-const worker = new Worker('./backend/worker.js');
-worker.on('message', async (msg) => {
+
+async function handleWorkerMessage(msg) {
   if (msg.msg === 'resync-info') {
     const res = uuidResMap.get(msg.uuid);
     let writeDependency = true;
@@ -299,37 +299,53 @@ worker.on('message', async (msg) => {
       res.status(200).send({ 'msg': 'everthing is up-to-date!' });
     }
   }
-});
-worker.on("error", (err) => console.log(err));
-worker.on('exit', (code) => (code != 0) ? console.log('Worker stopped working with status code ' + code + '.') : null)
+}
 
-/** 
- * GET - project name, third-party dependency(optionally includes devDependencies & nodejs built-in dependencies) 
+let worker = null;
+
+/**
+ * Spawned on first use, not at import: a worker thread keeps the event loop
+ * alive, which would hang `--help` and any other command that only requires
+ * this module. The path is resolved against this file, since process.cwd() is
+ * the project being scanned rather than ours.
+ */
+function getWorker() {
+  if (worker) return worker;
+  worker = new Worker(path.join(__dirname, 'worker.js'));
+  worker.on('message', handleWorkerMessage);
+  worker.on("error", (err) => console.log(err));
+  worker.on('exit', (code) => (code != 0) ? console.log('Worker stopped working with status code ' + code + '.') : null);
+  return worker;
+}
+
+/**
+ * GET - project name, third-party dependency(optionally includes devDependencies & nodejs built-in dependencies)
  *       including the dependency usage information.
 */
-app.get('/dep', async (req, res) => {
+app.get('/api/dep', async (req, res) => {
   let result = await generateHierarchy(path.basename(process.cwd()));
   await fs.writeFile(path.join(process.cwd(), 'check-dependency-data', 'response.json'), JSON.stringify(result), 'utf8');
-  worker.postMessage({ 'msg': 'start-monitoring' });
+  getWorker().postMessage({ 'msg': 'start-monitoring' });
   res.status(200).send(result);
 });
 
 /**
  * GET - dependency information needs to be re-synchronized due to changes within project files.
  */
-app.get('/resync', async (req, res) => {
+app.get('/api/resync', async (req, res) => {
   const uuid = crypto.randomUUID();
   uuidResMap.set(uuid, res);
-  worker.postMessage({
+  getWorker().postMessage({
     'msg': 'resync-info',
     'uuid': uuid
   });
 });
 
 /**
- * GET - contents of the filePath (best to visit /resync before getting contents).
+ * GET - contents of the filePath (best to visit /api/resync before getting contents).
+ * Namespaced under /api/file so it cannot shadow the UI's own assets.
  */
-app.get('/:filePath', async (req, res) => {
+app.get('/api/file/:filePath', async (req, res) => {
   const filePath = req.params.filePath;
   try {
     let contents = await fs.readFile(filePath, { encoding: 'utf8' });
@@ -339,9 +355,42 @@ app.get('/:filePath', async (req, res) => {
   }
 });
 
-app.listen(3000, async () => {
+// The bundled UI, and a fallback so a reload on any route still lands on the app.
+app.use(express.static(UI_DIR));
+app.get(/.*/, (req, res) => res.sendFile(path.join(UI_DIR, 'index.html')));
+
+/**
+ * Binds the server, walking forward from `port` when something already holds it.
+ * Resolves with the port actually taken.
+ */
+function listen(port, host, attemptsLeft) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, host);
+    server.once('listening', () => resolve(server));
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attemptsLeft > 0 && port !== 0) {
+        listen(port + 1, host, attemptsLeft - 1).then(resolve, reject);
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
+
+async function start({ port = 3000, host = '127.0.0.1' } = {}) {
+  if (!_fs.existsSync(UI_DIR)) {
+    throw new Error(`the UI was not built — expected it at ${UI_DIR}. Run \`npm run build\`.`);
+  }
   await fs.mkdir(path.join(process.cwd(), 'check-dependency-data'), { 'recursive': true });
-  console.log('Server is running on http://localhost:3000');
-  console.log('Dependency information is on http://localhost:3000/dep');
-  console.log('Re-Synchronize information is on http://localhost:3000/resync');
-});
+
+  const server = await listen(port, host, 10);
+  return {
+    port: server.address().port,
+    close: () => Promise.all([
+      new Promise((resolve) => server.close(resolve)),
+      worker ? worker.terminate() : Promise.resolve(),
+    ]),
+  };
+}
+
+module.exports = { app, start };

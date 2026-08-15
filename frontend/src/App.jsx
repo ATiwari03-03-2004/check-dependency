@@ -57,7 +57,7 @@ export default function App() {
         setStatus({ tone: "idle", text: "Ready" });
       } catch (error) {
         console.error("Error fetching dependency information!!\nError: ", error);
-        setStatus({ tone: "error", text: `Cannot reach ${API}/dep. Is the server running?` });
+        setStatus({ tone: "error", text: "Cannot reach the scanner. Is the server still running?" });
       } finally {
         setBusy(false);
       }
@@ -132,7 +132,7 @@ export default function App() {
       setStatus({ tone: "ok", text: `Re-synced · ${parts.join(", ") || "no changes"}` });
     } catch (error) {
       console.error("Error re-synchronizing dependency information!!\nError: ", error);
-      setStatus({ tone: "error", text: `Re-sync failed. Is ${API} still running?` });
+      setStatus({ tone: "error", text: "Re-sync failed. Is the server still running?" });
     } finally {
       setBusy(false);
     }

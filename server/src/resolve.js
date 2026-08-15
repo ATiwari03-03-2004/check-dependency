@@ -23,11 +23,11 @@ async function resolve(_path, dependency) {
             dependencyType: 'built-in',
         };
     }
-    let pathParts = _path.split('\\');
+    let pathParts = _path.split(path.sep);
     for (let i = pathParts.length - 2; i >= 0; i--) {
         let dependencyPart = dependency.split('/');
         for (let j = dependencyPart.length; j >= 0; j--) {
-            let absPath = path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(0, j).join('/'));
+            let absPath = path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(0, j).join('/'));
             let res = await isValidAbsolutePath(absPath);
             if (res) {
                 return {
@@ -35,9 +35,9 @@ async function resolve(_path, dependency) {
                     dependencyType: (absPath.startsWith(process.cwd())) ? 'local' : 'global'
                 };
             } else if (j != dependencyPart.length) {
-                let _res = await isValidAbsolutePath(path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'));
+                let _res = await isValidAbsolutePath(path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'));
                 if (_res) {
-                    let jsonData = await fs.readFile(path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'), { encoding: 'utf8' });
+                    let jsonData = await fs.readFile(path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'), { encoding: 'utf8' });
                     let exports = JSON.parse(jsonData).exports;
                     if (exports['./' + (dependency.substring(j).join('/'))]['default']) {
                         return {
@@ -67,11 +67,11 @@ function resolveSync(_path, dependency) {
             dependencyType: 'built-in',
         };
     }
-    let pathParts = _path.split('\\');
+    let pathParts = _path.split(path.sep);
     for (let i = pathParts.length - 2; i >= 0; i--) {
         let dependencyPart = dependency.split('/');
         for (let j = dependencyPart.length; j > 0; j--) {
-            let absPath = path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(0, j).join('/'));
+            let absPath = path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(0, j).join('/'));
             let res = isValidAbsolutePathSync(absPath);
             if (res) {
                 return {
@@ -79,9 +79,9 @@ function resolveSync(_path, dependency) {
                     dependencyType: (absPath.startsWith(process.cwd())) ? 'local' : 'global'
                 };
             } else if (j != dependencyPart.length) {
-                let _res = isValidAbsolutePathSync(path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'));
+                let _res = isValidAbsolutePathSync(path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'));
                 if (_res) {
-                    let jsonData = _fs.readFileSync(path.join(pathParts.slice(0, i + 1).join('\\'), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'), { encoding: 'utf8' });
+                    let jsonData = _fs.readFileSync(path.join(pathParts.slice(0, i + 1).join(path.sep), 'node_modules', dependencyPart.slice(j).join('/'), 'package.json'), { encoding: 'utf8' });
                     let exports = JSON.parse(jsonData).exports;
                     if (exports['./' + (dependency.substring(j).join('/'))]['default']) {
                         return {

@@ -1,0 +1,50 @@
+{
+  "name": "check-dependency",
+  "version": "0.1.0",
+  "description": "Scan a JavaScript project and explore its third-party dependencies — where each one is imported, how it is used, and which are never used at all.",
+  "keywords": [
+    "dependencies",
+    "dependency-graph",
+    "unused-dependencies",
+    "imports",
+    "static-analysis",
+    "visualization",
+    "cli"
+  ],
+  "homepage": "https://github.com/ATiwari03-03-2004/check-dependency#readme",
+  "bugs": {
+    "url": "https://github.com/ATiwari03-03-2004/check-dependency/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ATiwari03-03-2004/check-dependency.git"
+  },
+  "license": "MIT",
+  "author": "Anshuman Tiwari",
+  "type": "commonjs",
+  "main": "server/index.js",
+  "bin": {
+    "check-dependency": "bin/check-dependency.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "ui",
+    "Readme.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "start": "node bin/check-dependency.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.7",
+    "@babel/traverse": "^7.29.7",
+    "express": "^5.2.1",
+    "watcher": "^2.3.1"
+  }
+}

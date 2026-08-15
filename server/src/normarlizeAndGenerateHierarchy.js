@@ -38,10 +38,10 @@ async function normarlizeAndGenerateHierarchy(projectsrc, scanProject = true, _f
                         if (_dependency.startsWith('node:')) dep = _dependency.substring(5);
                         setObjs(dep, file, d['declaration'], d['sideEffectImport'], d['dependencyIdentifiers'], d['stringLiteral'], d['identifier'], 'built-in', _dependency, d['dependencyAbsolutePath']['dependencyPath'], false, undefined);
                     } else if (d['dependencyAbsolutePath']['dependencyType'] === 'local' && d['dependencyAbsolutePath']['dependencyPath'].includes('node_modules')) {
-                        let pathParts = d['dependencyAbsolutePath']['dependencyPath'].split('\\');
+                        let pathParts = d['dependencyAbsolutePath']['dependencyPath'].split(path.sep);
                         for (let i = pathParts.length - 1; i >= 0; i--) {
                             if (pathParts[i] === 'node_modules') break;
-                            let _path = pathParts.slice(0, i + 1).join('\\');
+                            let _path = pathParts.slice(0, i + 1).join(path.sep);
                             if (dependency[_path]) {
                                 setObjs(dependency[_path]['dependency'], file, d['declaration'], d['sideEffectImport'], d['dependencyIdentifiers'], d['stringLiteral'], d['identifier'], 'local', _dependency, d['dependencyAbsolutePath']['dependencyPath'], dependency[_path]['devDependencies'], dependency[_path]['version']);
                                 break;
@@ -52,7 +52,7 @@ async function normarlizeAndGenerateHierarchy(projectsrc, scanProject = true, _f
                     }
                 });
             }
-            treeData[file] = { 'label': file.split('\\').slice(-2).join('\\'), 'level': 2, 'children': [], 'error': imports[file]['error'] };
+            treeData[file] = { 'label': file.split(path.sep).slice(-2).join(path.sep), 'level': 2, 'children': [], 'error': imports[file]['error'] };
         }
         if (scanProject) {
             Object.keys(dependency).forEach(d => {
