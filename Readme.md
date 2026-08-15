@@ -1,5 +1,9 @@
 # check-dependency
 
+[![npm](https://img.shields.io/npm/v/check-dependency.svg)](https://www.npmjs.com/package/check-dependency)
+[![node](https://img.shields.io/node/v/check-dependency.svg)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/check-dependency.svg)](LICENSE)
+
 Scan a JavaScript project and explore its third-party dependencies — where each
 one is imported, how it is used, and which ones are never used at all.
 
