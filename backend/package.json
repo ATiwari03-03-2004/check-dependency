@@ -12,6 +12,7 @@
   "dependencies": {
     "@babel/parser": "^7.29.7",
     "@babel/traverse": "^7.29.7",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "watcher": "^2.3.1"
   }

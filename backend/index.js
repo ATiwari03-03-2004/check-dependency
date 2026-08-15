@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const app = express();
 const { Worker } = require('worker_threads');
 const path = require('path');
@@ -8,6 +9,8 @@ const fs = require('fs/promises');
 const _fs = require('fs');
 const projectsDependencies = require('./src/projectsDependencies');
 const { resolve } = require('./src/resolve');
+
+app.use(cors({ origin: 'http://localhost:5173' }));
 
 const uuidResMap = new Map();
 const worker = new Worker('./backend/worker.js');
@@ -328,8 +331,12 @@ app.get('/resync', async (req, res) => {
  */
 app.get('/:filePath', async (req, res) => {
   const filePath = req.params.filePath;
-  let contents = fs.readFile(filePath, { encoding: 'utf8' });
-  res.status(200).send({ contents });
+  try {
+    let contents = await fs.readFile(filePath, { encoding: 'utf8' });
+    res.status(200).send({ contents });
+  } catch (err) {
+    res.status(404).send({ error: err.message });
+  }
 });
 
 app.listen(3000, async () => {

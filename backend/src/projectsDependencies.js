@@ -12,13 +12,13 @@ async function projectsDependencies(flag = true, files) {
         let results;
         if (flag) {
             let packages = await findPackages(process.cwd());
-            const promises = packages.map((package) => {
-                return getDependencies(package);
+            const promises = packages.map((pkg) => {
+                return getDependencies(pkg);
             });
             results = await Promise.all(promises);
         } else {
-            const promises = files.map((package) => {
-                return getDependencies(package.split('\\').slice(0, package.split('\\').length - 1).join('\\'));
+            const promises = files.map((pkg) => {
+                return getDependencies(pkg.split('\\').slice(0, pkg.split('\\').length - 1).join('\\'));
             });
             results = await Promise.all(promises);
         }

@@ -51,9 +51,12 @@ async function task() {
     });
 }
 
+let watcherActive = false;
 parentPort.on('message', (msg) => {
-    if (msg.msg === 'start-monitoring') task();
-    if (msg.msg === 'resync-info') {
+    if (msg.msg === 'start-monitoring' && !watcherActive) {
+        task();
+        watcherActive = true;
+    } else if (msg.msg === 'resync-info') {
         parentPort.postMessage({
             'msg': 'resync-info',
             'uuid': msg.uuid,
